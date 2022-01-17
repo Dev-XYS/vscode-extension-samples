@@ -4,7 +4,10 @@
  * ------------------------------------------------------------------------------------------ */
 
 import * as path from 'path';
-import { workspace, ExtensionContext } from 'vscode';
+import { workspace, ExtensionContext, TextDocument, ViewColumn, TextDocumentChangeEvent, TextEditorEdit } from 'vscode';
+import { commands, window, TextEditor, TextDocumentContentProvider, EventEmitter, Uri, Range } from 'vscode';
+
+import * as cp from 'child_process';
 
 import {
 	LanguageClient,
@@ -14,6 +17,29 @@ import {
 } from 'vscode-languageclient/node';
 
 let client: LanguageClient;
+
+// The editor for surface language source editing.
+let surfaceEditor: TextEditor;
+
+// The (read-only) editor that displays desugar result.
+let desugarEditor: TextEditor;
+
+const desugarScheme = 'desugar';
+const desugarUri = Uri.parse(desugarScheme + ':Desugar Result');
+const desugarProvider = new class implements TextDocumentContentProvider {
+
+	// content
+	content = '';
+
+	// emitter and its event
+	onDidChangeEmitter = new EventEmitter<Uri>();
+	onDidChange = this.onDidChangeEmitter.event;
+
+	provideTextDocumentContent(uri: Uri): string {
+		// simply invoke cowsay, use uri-path as text
+		return this.content;
+	}
+};
 
 export function activate(context: ExtensionContext) {
 	// The server is implemented in node
@@ -55,6 +81,40 @@ export function activate(context: ExtensionContext) {
 
 	// Start the client. This will also launch the server
 	client.start();
+
+	// Register the content provider.
+	workspace.registerTextDocumentContentProvider(desugarScheme, desugarProvider);
+
+	// Create the editor for writing surface language program.
+	// workspace.openTextDocument({ content: '' }).then((doc: TextDocument) => {
+	// 	window.showTextDocument(doc, { preview: false }).then((editor: TextEditor) => {
+	// 		surfaceEditor = editor;
+	// 	}, (reason) => {
+	// 		window.showErrorMessage(reason);
+	// 	});
+	// });
+
+	// Create the editor for desugar result.
+	workspace.openTextDocument(desugarUri).then((doc: TextDocument) => {
+		window.showTextDocument(doc, { preview: false, viewColumn: ViewColumn.Beside }).then((editor: TextEditor) => {
+			desugarEditor = editor;
+		});
+	});
+
+	// Register document editing event.
+	workspace.onDidChangeTextDocument((e: TextDocumentChangeEvent) => {
+		// For now, the surface program filename must be 'Surface Program'. Needs to be changed later.
+		if (e.document.fileName.endsWith('Surface Program')) {
+			desugarAndShow(e.document.getText());
+		}
+	});
+
+	// Deactivate the extension if the surface program editor is closed.
+	workspace.onDidCloseTextDocument((doc: TextDocument) => {
+		if (doc.fileName === 'Surface Program') {
+			client.stop();
+		}
+	});
 }
 
 export function deactivate(): Thenable<void> | undefined {
@@ -62,4 +122,24 @@ export function deactivate(): Thenable<void> | undefined {
 		return undefined;
 	}
 	return client.stop();
+}
+
+function updateDesugarEditor(text: string): void {
+	desugarProvider.content = text;
+	desugarProvider.onDidChangeEmitter.fire(desugarUri);
+}
+
+function desugarAndShow(prog: string): void {
+	// For demonstration purpose only!
+	const proc = cp.exec('java Desugar', { cwd: '/home/dev-xys/vscode-extension-samples/lsp-sample/java' }, (error: cp.ExecException, stdout: string, stderr: string) => {
+		if (error) {
+			window.showErrorMessage(error.message);
+			return;
+		}
+		if (stdout !== 'null\n') {
+			updateDesugarEditor(stdout);
+		}
+	});
+	proc.stdin.write(prog);
+	proc.stdin.end();
 }

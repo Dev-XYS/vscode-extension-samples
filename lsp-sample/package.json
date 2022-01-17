@@ -17,7 +17,7 @@
 		"vscode": "^1.43.0"
 	},
 	"activationEvents": [
-		"onLanguage:plaintext"
+		"workspaceContains:Surface Program"
 	],
 	"main": "./client/out/extension",
 	"contributes": {
