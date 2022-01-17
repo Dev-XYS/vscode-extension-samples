@@ -1,0 +1,8 @@
+int i;
+i = 100;
+int sum;
+while i do {
+    sum = sum + i;
+    i = i - 1
+}
+print sum
